@@ -30,6 +30,7 @@ frame:SetHeight(715)
 editBox:SetWidth(500);
 
 --- OUTPUT
+local allAbilities = {};
 local spellsWithCd = {};
 local playerBuffs = {};
 local targetBuffs = {};
@@ -37,6 +38,7 @@ local petBuffs = {};
 local targetDebuffs = {};
 local spellIdsFromTalent = {};
 local spellsWithCharge = {};
+local spellsWithActionUsable = {};
 
 ---
 
@@ -50,15 +52,15 @@ end
 
 local function GetSpellCooldownUnified(id)
   local gcdStart, gcdDuration = GetSpellCooldown(61304);
-  local charges, maxCharges, startTime, duration = GetSpellCharges(id);
+  local charges, maxCharges, startTime, cdDuration = GetSpellCharges(id);
   local cooldownBecauseRune = false;
    -- charges is nil if the spell has no charges. Or in other words GetSpellCharges is the wrong api
   if (charges == nil) then
     local basecd = GetSpellBaseCooldown(id);
     local enabled;
-    startTime, duration, enabled = GetSpellCooldown(id);
+    startTime, cdDuration, enabled = GetSpellCooldown(id);
     if (enabled == 0) then
-      startTime, duration = 0, 0
+      startTime, cdDuration = 0, 0
     end
 
     local spellcount = GetSpellCount(id);
@@ -72,50 +74,82 @@ local function GetSpellCooldownUnified(id)
       charges = spellcount;
     end
 
-    local onNonGCDCD = duration and startTime and duration > 0 and (duration ~= gcdDuration or startTime ~= gcdStart);
+    local onNonGCDCD = cdDuration and startTime and cdDuration > 0 and (cdDuration ~= gcdDuration or startTime ~= gcdStart);
 
     if ((basecd and basecd > 0) or onNonGCDCD) then
 
     else
       charges = spellcount;
       startTime = 0;
-      duration = 0;
+      cdDuration = 0;
     end
   elseif (charges == maxCharges) then
-    startTime, duration = 0, 0;
-  elseif (charges == 0 and duration == 0) then
+    startTime, cdDuration = 0, 0;
+  elseif (charges == 0 and cdDuration == 0) then
     -- Lavaburst while under Ascendance can return 0 charges even if the spell is useable
     charges = 1;
   end
 
   startTime = startTime or 0;
-  duration = duration or 0;
+  cdDuration = cdDuration or 0;
   -- WORKAROUND Sometimes the API returns very high bogus numbers causing client freeezes,
   -- discard them here. WowAce issue #1008
-  if (duration > 604800) then
-    duration = 0;
+  if (cdDuration > 604800) then
+    cdDuration = 0;
     startTime = 0;
   end
 
---  print(" => ", charges, maxCharges, duration);
+--  print(" => ", charges, maxCharges, cdDuration);
 
-  return charges, maxCharges, startTime, duration;
+  return charges, maxCharges, startTime, cdDuration;
 end
 
+local skipIds = {
+  [127230] = true, -- Visions of Insanity
+  -- Shrine / MoP aura buffs
+  [161780] = true, -- Gaze of the Black Prince
+  [131526] = true, -- Cyclonic Inspiratio
+  -- Enchants
+  [120032] = true, -- Dancing Steel
+  -- Mounts
+  [40192] = true, -- Ashes of Al'ar
+}
+
 local function checkForCd(spellId)
-  local charges, maxCharges, startTime, duration = GetSpellCooldownUnified(spellId);
-  -- print(spellId, charges, maxCharges, startTime, duration)
-  if (charges and charges > 1) or (maxCharges and maxCharges > 1) or duration > 0 then
-    if (not spellsWithCd[spellId]) then
-      PRINT("Adding "  .. GetSpellInfo(spellId) .. " " .. duration);
+  if skipIds[spellId] then
+    return
+  end
+
+  local spellName, _, _, powerCost = GetSpellInfo(spellId);
+  local charges, maxCharges, startTime, cdDuration = GetSpellCooldownUnified(spellId);
+
+  if 
+    (charges and charges > 1) 
+    or (maxCharges and maxCharges > 1) 
+    or cdDuration > 0 
+    or powerCost > 0 
+  then
+    local added = false
+    -- print(spellId, charges, maxCharges, startTime, cdDuration)
+    if (not spellsWithCd[spellId] and cdDuration > 0) then
+      added = true
+      spellsWithCd[spellId] = true;
       if (gatheringTalent) then
         spellIdsFromTalent[spellId] = true;
       end
     end
+    if (not spellsWithActionUsable[spellId] and (cdDuration > 0 or powerCost > 0)) then
+      added = true
+      spellsWithActionUsable[spellId] = true;
+    end
     if (charges and charges > 1) or (maxCharges and maxCharges > 1) then
+      added = true
       spellsWithCharge[spellId] = true
     end
-    spellsWithCd[spellId] = true;
+    if not allAbilities[spellId] then
+      PRINT("Adding "  .. GetSpellInfo(spellId) .. " " .. cdDuration);
+      allAbilities[spellId] = true
+    end
   end
 end
 
@@ -127,14 +161,16 @@ local function checkForBuffs(unit, filter, output)
       break
     end
 
-    if (unitCaster == "player" or unitCaster == "pet") then
-      if (not output[spellId]) then
-        PRINT("Adding "  .. GetSpellInfo(spellId));
-        if (gatheringTalent) then
-          spellIdsFromTalent[spellId] = true;
+    if skipIds[spellId] ~= true then
+      if (unitCaster == "player" or unitCaster == "pet") then
+        if (not output[spellId]) then
+          PRINT("Adding [ID: "..spellId.."] "  .. GetSpellInfo(spellId));
+          if (gatheringTalent) then
+            spellIdsFromTalent[spellId] = true;
+          end
         end
+        output[spellId] = true;
       end
-      output[spellId] = true;
     end
 
     i = i + 1;
@@ -240,7 +276,7 @@ function export()
 
   -- CDS
   local sortedCds = {};
-  for spellId, _ in pairs(spellsWithCd) do
+  for spellId, _ in pairs(allAbilities) do
     tinsert(sortedCds, spellId);
   end
   sort(sortedCds);
@@ -258,6 +294,9 @@ function export()
     end
     if spellsWithCharge[spellId] then
       parameters = parameters .. ", charges = true "
+    end
+    if spellsWithActionUsable[spellId] then
+      parameters = parameters .. ", usable = true "
     end
     -- buff & debuff doesn't work if spellid is different like Death and Decay or Marrowrend
     if playerBuffs[spellId] then
