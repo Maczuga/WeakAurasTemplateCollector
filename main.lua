@@ -24,7 +24,7 @@ editBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
 scrollFrame:SetScrollChild(editBox)
 
-frame:SetPoint("RIGHT",0,0)
+frame:SetPoint("LEFT",0,0)
 frame:SetWidth(300)
 frame:SetHeight(715)
 editBox:SetWidth(500);
@@ -104,6 +104,7 @@ end
 
 local function checkForCd(spellId)
   local charges, maxCharges, startTime, duration = GetSpellCooldownUnified(spellId);
+  -- print(spellId, charges, maxCharges, startTime, duration)
   if (charges and charges > 1) or (maxCharges and maxCharges > 1) or duration > 0 then
     if (not spellsWithCd[spellId]) then
       PRINT("Adding "  .. GetSpellInfo(spellId) .. " " .. duration);
@@ -121,7 +122,7 @@ end
 local function checkForBuffs(unit, filter, output)
   local i = 1
   while true do
-    local name, _, _, _, _, _, unitCaster, _, _, spellId = UnitAura(unit, i, filter) -- TODO PLAYER OR PET
+    local name, _, _, _, _, _, _, unitCaster, _, _, spellId = UnitAura(unit, i, filter) -- TODO PLAYER OR PET
     if (not name) then
       break
     end
@@ -152,10 +153,14 @@ frame:SetScript("OnUpdate",
       local _, _, offset, numSpells, _, offspecID = GetSpellTabInfo(spellTab)
       if (offspecID  == 0) then
         for i = (offset + 1), (offset + numSpells - 1) do
-          local name, _, spellId = GetSpellBookItemName(i, BOOKTYPE_SPELL)
+          local name, _ = GetSpellBookItemName(i, BOOKTYPE_SPELL)
           if not name then
             break;
           end
+
+          local link = GetSpellLink(name)
+          local spellId = tonumber(link and link:gsub("|", "||"):match("spell:(%d+)"))
+          
           if (spellId) then
             checkForCd(spellId);
           end
@@ -164,10 +169,14 @@ frame:SetScript("OnUpdate",
     end
     local i = 1;
     while true do
-      local name, _, spellId = GetSpellBookItemName(i, BOOKTYPE_PET)
+      local name, _ = GetSpellBookItemName(i, BOOKTYPE_PET)
       if not name then
         break;
       end
+      
+      local link = GetSpellLink(name)
+      local spellId = tonumber(link and link:gsub("|", "||"):match("spell:(%d+)"))
+          
       if (spellId) then
         checkForCd(spellId);
       end
@@ -214,7 +223,7 @@ function export()
   buffs = buffs .. formatBuffs(petBuffs, "buff", "pet");
   buffs = buffs ..
   "      },\n" ..
-  "      icon = 458972\n" ..
+  "      icon = \"Interface\\Icons\\Warrior_talent_icon_innerrage\"\n" ..
   "    },\n"
 
   local debuffs =
@@ -224,7 +233,7 @@ function export()
   debuffs = debuffs .. formatBuffs(targetDebuffs, "debuff", "target");
   debuffs = debuffs ..
   "      },\n" ..
-  "      icon = 458972\n" ..
+  "      icon = \"Interface\\Icons\\Warrior_talent_icon_innerrage\"\n" ..
   "    },\n"
 
 
@@ -238,7 +247,7 @@ function export()
 
   local cooldowns =
   "    [3] = {\n" ..
-  "      title = L[\"Cooldowns\"],\n" ..
+  "      title = L[\"Abilities\"],\n" ..
   "      args = {\n";
 
   for _, spellId in ipairs(sortedCds) do
@@ -267,7 +276,7 @@ function export()
 
   cooldowns = cooldowns ..
   "      },\n" ..
-  "      icon = 136012\n" ..
+  "      icon = \"Interface\\Icons\\Spell_nature_bloodlust\"\n" ..
   "    },\n";
 
   editBox:SetText(buffs .. debuffs .. cooldowns);
