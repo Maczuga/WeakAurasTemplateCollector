@@ -35,21 +35,11 @@ frame:SetSize(width, height)
 frame:SetHeight(height)
 editBox:SetWidth(500);
 
-local talentButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-talentButton:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", spacing, -spacing)
-talentButton:SetFrameLevel(frame:GetFrameLevel() + 1)
-talentButton:SetHeight(btnHeight)
-talentButton:SetWidth(width / 2)
-talentButton:SetText("Talent mode")
-talentButton:SetScript("OnClick", function(self)
-  talents()
-end)
-
 local exportButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-exportButton:SetPoint("TOPLEFT", talentButton, "TOPRIGHT", spacing, 0)
+exportButton:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", spacing, 0)
 exportButton:SetFrameLevel(frame:GetFrameLevel() + 1)
 exportButton:SetHeight(btnHeight)
-exportButton:SetWidth(width / 2)
+exportButton:SetWidth(width)
 exportButton:SetText("Export LUA")
 exportButton:SetScript("OnClick", function(self)
   export()
@@ -66,10 +56,12 @@ local spellIdsFromTalent = {};
 local spellsWithCharge = {};
 local spellsWithActionUsable = {};
 local spellTotems = {};
-
 ---
 
-local gatheringTalent = false;
+--- TALENTS
+local talentCache = {};
+local recentTalent = 0;
+---
 
 local function PRINT(t)
   local text = editBox:GetText();
@@ -164,26 +156,26 @@ local function checkForCd(spellId)
     or (cdDuration and cdDuration > 0)
     or (powerCost and powerCost > 0)
   then
-    local added = false
-    -- print(spellId, charges, maxCharges, startTime, cdDuration)
-    if (not spellsWithCd[spellId] and cdDuration > 0) then
-      added = true
+    if cdDuration and cdDuration > 0 and not spellsWithCd[spellId] then
       spellsWithCd[spellId] = true;
-      if (gatheringTalent) then
-        spellIdsFromTalent[spellId] = true;
-      end
     end
-    if (not spellsWithActionUsable[spellId] and (cdDuration > 0 or powerCost > 0)) then
-      added = true
+
+    if ((cdDuration and cdDuration > 0) or (powerCost and powerCost > 0)) and not spellsWithActionUsable[spellId] then
       spellsWithActionUsable[spellId] = true;
     end
-    if (charges and charges > 1) or (maxCharges and maxCharges > 1) then
-      added = true
+
+    if ((charges and charges > 1) or (maxCharges and maxCharges > 1)) and not spellsWithCharge[spellId] then
       spellsWithCharge[spellId] = true
     end
+    
     if not allAbilities[spellId] then
       PRINT("Adding "  .. GetSpellInfo(spellId) .. " " .. cdDuration);
       allAbilities[spellId] = true
+
+      print(recentTalent)
+      if (recentTalent ~= 0) then
+        spellIdsFromTalent[spellId] = recentTalent;
+      end
     end
   end
 end
@@ -206,8 +198,8 @@ local function checkForBuffs(unit, filter, output)
       if (unitCaster == "player" or unitCaster == "pet") then
         if (not output[spellId]) then
           PRINT("Adding [ID: "..spellId.."] "  .. GetSpellInfo(spellId));
-          if (gatheringTalent) then
-            spellIdsFromTalent[spellId] = true;
+          if (recentTalent ~= 0) then
+            spellIdsFromTalent[spellId] = recentTalent;
           end
         end
         output[spellId] = true;
@@ -216,11 +208,6 @@ local function checkForBuffs(unit, filter, output)
 
     i = i + 1;
   end
-end
-
-function talents()
-  gatheringTalent = true;
-  PRINT("Gathering Talent information...");
 end
 
 frame:SetScript("OnUpdate", function()
@@ -270,6 +257,7 @@ end);
 -- frame:RegisterEvent("UNIT_SPELLCAST_SENT")
 frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 frame:RegisterEvent("PLAYER_TOTEM_UPDATE")
+frame:RegisterEvent("PLAYER_TALENT_UPDATE")
 
 frame:SetScript("OnEvent", function(self, event, ...)
   -- print(event, caster, spell)
@@ -297,6 +285,22 @@ frame:SetScript("OnEvent", function(self, event, ...)
       end
     end
   end
+
+  if event == "PLAYER_TALENT_UPDATE" then
+    local wasEmpty = #talentCache == 0
+
+    local numTalents = MAX_NUM_TALENT_TIERS * NUM_TALENT_COLUMNS
+    for i = 1, numTalents do 
+      local known = select(5, GetTalentInfo(i)) == true
+
+      -- Mark talent as changed
+      if not wasEmpty and known ~= talentCache[i] then
+        recentTalent = i
+      end
+
+      talentCache[i] = known
+    end
+  end
 end);
 
 local function formatBuffs(input, type, unit)
@@ -308,8 +312,9 @@ local function formatBuffs(input, type, unit)
   local output = "";
   for _, spellId in pairs(sorted) do
     local withTalent = "";
-    if (spellIdsFromTalent[spellId]) then
-      withTalent = ", talent = 0 "
+    local fromTalent = spellIdsFromTalent[spellId];
+    if (fromTalent and fromTalent ~= 0) then
+      withTalent = ", talent = ".. fromTalent .." "
     end
     output = output .. "        { spell = " .. spellId .. ", type = \"" .. type .. "\", unit = \"" .. unit .. "\"" .. withTalent  .. "}, -- " .. GetSpellInfo(spellId) .. "\n";
   end
@@ -358,8 +363,9 @@ function export()
   for _, spellId in ipairs(sortedCds) do
     local spellName = GetSpellInfo(spellId);
     local parameters = "";
-    if spellIdsFromTalent[spellId] then
-      parameters = parameters .. ", talent = 0 "
+    local fromTalent = spellIdsFromTalent[spellId];
+    if fromTalent then
+      parameters = parameters .. ", talent = ".. fromTalent .." "
     end
     if spellsWithCharge[spellId] then
       parameters = parameters .. ", charges = true "
