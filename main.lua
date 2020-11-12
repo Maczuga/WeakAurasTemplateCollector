@@ -11,6 +11,7 @@ local frame = CreateFrame("Frame", nil, UIParent)
 frame:SetBackdrop(backdrop)
 frame:SetBackdropColor(0, 0, 0)
 frame:SetBackdropBorderColor(0.4, 0.4, 0.4)
+
 --frame:Hide();
 
 local scrollFrame = CreateFrame("ScrollFrame", "1ScrollFrame", frame, "UIPanelScrollFrameTemplate")
@@ -39,6 +40,7 @@ local targetDebuffs = {};
 local spellIdsFromTalent = {};
 local spellsWithCharge = {};
 local spellsWithActionUsable = {};
+local spellTotems = {};
 
 ---
 
@@ -51,6 +53,9 @@ local function PRINT(t)
 end
 
 local function GetSpellCooldownUnified(id)
+  if not id then
+    return
+  end
   local gcdStart, gcdDuration = GetSpellCooldown(61304);
   local charges, maxCharges, startTime, cdDuration = GetSpellCharges(id);
   local cooldownBecauseRune = false;
@@ -113,6 +118,7 @@ local skipIds = {
   [120032] = true, -- Dancing Steel
   -- Mounts
   [40192] = true, -- Ashes of Al'ar
+  [61447] = true, -- Traveler's Tundra Mammoth
 }
 
 local function checkForCd(spellId)
@@ -153,6 +159,12 @@ local function checkForCd(spellId)
   end
 end
 
+local function spellNameToId(spellName)
+  local link = GetSpellLink(spellName)
+  local spellId = tonumber(link and link:gsub("|", "||"):match("spell:(%d+)"))
+
+  return spellId
+end
 local function checkForBuffs(unit, filter, output)
   local i = 1
   while true do
@@ -177,57 +189,98 @@ local function checkForBuffs(unit, filter, output)
   end
 end
 
+-- Used only to fetch new data
+function clearData()
+  allAbilities = {};
+  spellsWithCd = {};
+  playerBuffs = {};
+  targetBuffs = {};
+  petBuffs = {};
+  targetDebuffs = {};
+  spellIdsFromTalent = {};
+  spellsWithCharge = {};
+  spellsWithActionUsable = {};
+  spellTotems = {};
+end
+
 function talents()
   gatheringTalent = true;
   PRINT("Gathering Talent information...");
 end
 
+frame:SetScript("OnUpdate", function()
+  for spellTab = 1, GetNumSpellTabs() do
+    local _, _, offset, numSpells, _, offspecID = GetSpellTabInfo(spellTab)
+    if (offspecID  == 0) then
+      for i = (offset + 1), (offset + numSpells - 1) do
+        local name, _ = GetSpellBookItemName(i, BOOKTYPE_SPELL)
+        if not name then
+          break;
+        end
 
-frame:SetScript("OnUpdate",
-  function()
-    for spellTab = 1, GetNumSpellTabs() do
-      local _, _, offset, numSpells, _, offspecID = GetSpellTabInfo(spellTab)
-      if (offspecID  == 0) then
-        for i = (offset + 1), (offset + numSpells - 1) do
-          local name, _ = GetSpellBookItemName(i, BOOKTYPE_SPELL)
-          if not name then
-            break;
-          end
-
-          local link = GetSpellLink(name)
-          local spellId = tonumber(link and link:gsub("|", "||"):match("spell:(%d+)"))
-          
-          if (spellId) then
-            checkForCd(spellId);
-          end
+        local spellId = spellNameToId(name)
+        
+        if (spellId) then
+          checkForCd(spellId);
         end
       end
     end
-    local i = 1;
-    while true do
-      local name, _ = GetSpellBookItemName(i, BOOKTYPE_PET)
-      if not name then
-        break;
-      end
+  end
+  local i = 1;
+  while true do
+    local name, _ = GetSpellBookItemName(i, BOOKTYPE_PET)
+    if not name then
+      break;
+    end
+    
+    local link = GetSpellLink(name)
+    local spellId = tonumber(link and link:gsub("|", "||"):match("spell:(%d+)"))
+        
+    if (spellId) then
+      checkForCd(spellId);
+    end
+    i = i + 1
+  end
+
+  checkForBuffs("player", "HELPFUL", playerBuffs);
+  if (not UnitIsUnit("player", "target")) then
+    checkForBuffs("target", "HELPFUL", targetBuffs);
+  end
+  checkForBuffs("pet", "HELPFUL", petBuffs);
+  if (not UnitIsUnit("player", "target")) then
+    checkForBuffs("target", "HARMFUL ", targetDebuffs);
+  end
+end);
+
+-- frame:RegisterEvent("UNIT_SPELLCAST_SENT")
+frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+frame:RegisterEvent("PLAYER_TOTEM_UPDATE")
+
+frame:SetScript("OnEvent", function(self, event, ...)
+  -- print(event, caster, spell)
+  if event == "UNIT_SPELLCAST_SUCCEEDED" then
+    local caster, spell = ...
+
+    if caster ~= "player" then
+      return
+    end
+    
+    local spellId = spellNameToId(spell)
+    checkForCd(spellId)
+    return
+  end
+
+  if event == "PLAYER_TOTEM_UPDATE" then
+    for i = 1, MAX_TOTEMS do
+      local haveTotem, totemName = GetTotemInfo(i)
+
+      local spellId = spellNameToId(totemName)
       
-      local link = GetSpellLink(name)
-      local spellId = tonumber(link and link:gsub("|", "||"):match("spell:(%d+)"))
-          
-      if (spellId) then
-        checkForCd(spellId);
+      if spellId and not spellTotems[spellId] then 
+        spellTotems[spellId] = true
       end
-      i = i + 1
     end
-
-    checkForBuffs("player", "HELPFUL", playerBuffs);
-    if (not UnitIsUnit("player", "target")) then
-      checkForBuffs("target", "HELPFUL", targetBuffs);
-    end
-    checkForBuffs("pet", "HELPFUL", petBuffs);
-    if (not UnitIsUnit("player", "target")) then
-      checkForBuffs("target", "HARMFUL ", targetDebuffs);
-    end
-
+  end
 end);
 
 local function formatBuffs(input, type, unit)
@@ -298,6 +351,9 @@ function export()
     if spellsWithActionUsable[spellId] then
       parameters = parameters .. ", usable = true "
     end
+    if spellTotems[spellId] then
+      parameters = parameters .. ", totem = true "
+    end
     -- buff & debuff doesn't work if spellid is different like Death and Decay or Marrowrend
     if playerBuffs[spellId] then
       parameters = parameters .. ", buff = true "
@@ -308,7 +364,7 @@ function export()
     if targetBuffs[spellId] then
       parameters = parameters .. ", debuff = true "
     end
-    -- TODO handle if possible: requiresTarget, totem, overlayGlow, usable
+    -- TODO handle if possible: requiresTarget, totem, overlayGlow
 
     cooldowns = cooldowns .. "        { spell = " .. spellId ..", type = \"ability\"" .. parameters .. "}, -- ".. spellName .. "\n"
   end
