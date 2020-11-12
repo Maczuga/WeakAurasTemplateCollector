@@ -132,8 +132,8 @@ local function checkForCd(spellId)
   if 
     (charges and charges > 1) 
     or (maxCharges and maxCharges > 1) 
-    or cdDuration > 0 
-    or powerCost > 0 
+    or (cdDuration and cdDuration > 0)
+    or (powerCost and powerCost > 0)
   then
     local added = false
     -- print(spellId, charges, maxCharges, startTime, cdDuration)
@@ -276,6 +276,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
 
       local spellId = spellNameToId(totemName)
       
+      checkForCd(spellId)
       if spellId and not spellTotems[spellId] then 
         spellTotems[spellId] = true
       end
