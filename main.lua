@@ -6,8 +6,13 @@ edgeFile = [[Interface\Tooltips\UI-Tooltip-Border]], edgeSize = 16,
 insets = { left = 4, right = 3, top = 4, bottom = 3 }
 }
 
+local width = 400
+local height = 600
+local btnHeight = 20
+local spacing = 2
 
 local frame = CreateFrame("Frame", nil, UIParent)
+frame:SetMovable(true)
 frame:SetBackdrop(backdrop)
 frame:SetBackdropColor(0, 0, 0)
 frame:SetBackdropBorderColor(0.4, 0.4, 0.4)
@@ -25,10 +30,30 @@ editBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
 scrollFrame:SetScrollChild(editBox)
 
-frame:SetPoint("LEFT",0,0)
-frame:SetWidth(300)
-frame:SetHeight(715)
+frame:SetPoint("LEFT", 5, 100)
+frame:SetSize(width, height)
+frame:SetHeight(height)
 editBox:SetWidth(500);
+
+local talentButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+talentButton:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", spacing, -spacing)
+talentButton:SetFrameLevel(frame:GetFrameLevel() + 1)
+talentButton:SetHeight(btnHeight)
+talentButton:SetWidth(width / 2)
+talentButton:SetText("Talent mode")
+talentButton:SetScript("OnClick", function(self)
+  talents()
+end)
+
+local exportButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+exportButton:SetPoint("TOPLEFT", talentButton, "TOPRIGHT", spacing, 0)
+exportButton:SetFrameLevel(frame:GetFrameLevel() + 1)
+exportButton:SetHeight(btnHeight)
+exportButton:SetWidth(width / 2)
+exportButton:SetText("Export LUA")
+exportButton:SetScript("OnClick", function(self)
+  export()
+end)
 
 --- OUTPUT
 local allAbilities = {};
@@ -119,6 +144,10 @@ local skipIds = {
   -- Mounts
   [40192] = true, -- Ashes of Al'ar
   [61447] = true, -- Traveler's Tundra Mammoth
+  -- PTR stuff
+  [127891] = true, -- Stupid Channel Test (DELETE ME)
+  [142454] = true, -- New Test Spell
+  [134816] = true, -- Test
 }
 
 local function checkForCd(spellId)
@@ -187,20 +216,6 @@ local function checkForBuffs(unit, filter, output)
 
     i = i + 1;
   end
-end
-
--- Used only to fetch new data
-function clearData()
-  allAbilities = {};
-  spellsWithCd = {};
-  playerBuffs = {};
-  targetBuffs = {};
-  petBuffs = {};
-  targetDebuffs = {};
-  spellIdsFromTalent = {};
-  spellsWithCharge = {};
-  spellsWithActionUsable = {};
-  spellTotems = {};
 end
 
 function talents()
